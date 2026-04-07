@@ -47,6 +47,18 @@ class AuthLocalDataSource {
   }
 
   Future<void> deleteUser(String id) async {
+    await _db.delete(
+      'contacts',
+      where: 'user_id = ? OR contact_id = ?',
+      whereArgs: [id, id],
+    );
+    await _db.delete('group_members', where: 'user_id = ?', whereArgs: [id]);
+    await _db.delete(
+      'messages',
+      where: 'sender_id = ? OR receiver_id = ?',
+      whereArgs: [id, id],
+    );
+    await _db.delete('sessions', where: 'user_id = ?', whereArgs: [id]);
     await _db.delete('users', where: 'id = ?', whereArgs: [id]);
   }
 

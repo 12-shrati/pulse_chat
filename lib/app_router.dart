@@ -22,7 +22,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/chat',
         builder: (context, state) {
-          final name = state.extra as String? ?? '';
+          final extra = state.extra;
+          if (extra is Map<String, String>) {
+            return ChatScreen(
+              contactName: extra['name'] ?? '',
+              contactId: extra['contactId'],
+              currentUserId: extra['currentUserId'],
+            );
+          }
+          // Backward compatible: accept plain string
+          final name = extra as String? ?? '';
           return ChatScreen(contactName: name);
         },
       ),

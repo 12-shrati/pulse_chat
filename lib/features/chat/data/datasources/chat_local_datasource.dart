@@ -9,7 +9,7 @@ class ChatLocalDataSource {
   Future<List<MessageModel>> getMessages(String conversationId) async {
     final results = await _db.query(
       'messages',
-      where: 'receiver_id = ? OR sender_id = ?',
+      where: '(receiver_id = ? AND group_id IS NULL) OR (sender_id = ? AND group_id IS NULL)',
       whereArgs: [conversationId, conversationId],
       orderBy: 'created_at ASC',
     );

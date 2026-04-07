@@ -40,3 +40,13 @@ class RemoveMemberUseCase {
     return _repository.removeMember(groupId, userId);
   }
 }
+
+class GetMembersUseCase {
+  final GroupRepository _repository;
+
+  GetMembersUseCase(this._repository);
+
+  Future<List<GroupMember>> call(String groupId) {
+    return _repository.getMembers(groupId);
+  }
+}

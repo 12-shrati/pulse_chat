@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:pulse_chat/core/network/api_service.dart';
 import 'package:pulse_chat/features/auth/data/datasources/auth_local_datasource.dart';
 import 'package:pulse_chat/features/auth/data/models/user_model.dart';
 import 'package:pulse_chat/features/auth/domain/entities/user_entity.dart';
@@ -7,10 +9,11 @@ import 'package:pulse_chat/features/auth/domain/repositories/auth_repository.dar
 
 class AuthRepositoryImpl implements AuthRepository {
   final AuthLocalDataSource _localDataSource;
+  final ApiService _apiService;
   static const _sessionDays = 7;
   String? _currentUserId;
 
-  AuthRepositoryImpl(this._localDataSource);
+  AuthRepositoryImpl(this._localDataSource, this._apiService);
 
   String _hashPassword(String password) {
     final bytes = utf8.encode(password);
@@ -19,16 +22,51 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<UserEntity?> login(String email, String password) async {
-    final existingUser = await _localDataSource.getUserByEmail(email);
-    if (existingUser == null) return null;
     final hash = _hashPassword(password);
-    if (existingUser.passwordHash != hash) return null;
-    _currentUserId = existingUser.id;
+
+    // Try local database first
+    final existingUser = await _localDataSource.getUserByEmail(email);
+    if (existingUser != null) {
+      if (existingUser.passwordHash != hash) return null;
+      _currentUserId = existingUser.id;
+      await _localDataSource.saveSession(
+        existingUser.id,
+        DateTime.now().add(const Duration(days: _sessionDays)),
+      );
+      // Ensure this user is registered on the server
+      await _apiService.registerUser(
+        id: existingUser.id,
+        name: existingUser.name,
+        email: existingUser.email,
+        avatarUrl: existingUser.avatarUrl,
+        passwordHash: hash,
+      );
+      return existingUser;
+    }
+
+    // User not found locally — try server login (supports cross-device auth)
+    final serverUser = await _apiService.loginUser(
+      email: email,
+      passwordHash: hash,
+    );
+    if (serverUser == null) return null;
+
+    // Save the user locally so future logins work offline
+    final user = UserModel(
+      id: serverUser['id'] as String,
+      name: serverUser['name'] as String,
+      email: serverUser['email'] as String,
+      passwordHash: hash,
+      avatarUrl: serverUser['avatarUrl'] as String?,
+      isOnline: true,
+    );
+    await _localDataSource.saveUser(user);
+    _currentUserId = user.id;
     await _localDataSource.saveSession(
-      existingUser.id,
+      user.id,
       DateTime.now().add(const Duration(days: _sessionDays)),
     );
-    return existingUser;
+    return user;
   }
 
   @override
@@ -52,6 +90,21 @@ class AuthRepositoryImpl implements AuthRepository {
       user.id,
       DateTime.now().add(const Duration(days: _sessionDays)),
     );
+
+    // Register user on the server via HTTP so other devices can discover them
+    final serverOk = await _apiService.registerUser(
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatarUrl: user.avatarUrl,
+      passwordHash: user.passwordHash,
+    );
+    if (!serverOk) {
+      debugPrint(
+        '[AuthRepo] WARNING: Server registration failed – login after reinstall may not work',
+      );
+    }
+
     return user;
   }
 
@@ -81,6 +134,35 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<List<UserEntity>> getAllUsers() async {
+    return _localDataSource.getAllUsers();
+  }
+
+  /// Fetches all users from the server via HTTP and saves them locally.
+  /// Returns the merged list of all users.
+  @override
+  Future<List<UserEntity>> syncUsersFromServer() async {
+    debugPrint('[AuthRepo] syncUsersFromServer called');
+    final serverUsers = await _apiService.fetchUsers();
+    debugPrint('[AuthRepo] got ${serverUsers.length} users from server');
+
+    // Save server users locally (skip password_hash since we don't have it)
+    for (final userData in serverUsers) {
+      final id = userData['id'] as String? ?? '';
+      if (id.isEmpty) continue;
+      // Don't overwrite existing local users (they may have password_hash)
+      final existing = await _localDataSource.getUser(id);
+      if (existing == null) {
+        final user = UserModel(
+          id: id,
+          name: userData['name'] as String? ?? '',
+          email: userData['email'] as String? ?? '',
+          passwordHash: '',
+          avatarUrl: userData['avatarUrl'] as String?,
+        );
+        await _localDataSource.saveUser(user);
+      }
+    }
+
     return _localDataSource.getAllUsers();
   }
 
@@ -122,5 +204,10 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<bool> isContact(String contactId) async {
     if (_currentUserId == null) return false;
     return _localDataSource.isContact(_currentUserId!, contactId);
+  }
+
+  @override
+  Future<void> deleteUser(String userId) async {
+    await _localDataSource.deleteUser(userId);
   }
 }

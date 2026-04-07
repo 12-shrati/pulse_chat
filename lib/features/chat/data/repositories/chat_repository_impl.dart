@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:pulse_chat/core/websocket/websocket_service.dart';
 import 'package:pulse_chat/features/chat/data/datasources/chat_local_datasource.dart';
@@ -9,7 +8,7 @@ import 'package:pulse_chat/features/chat/domain/repositories/chat_repository.dar
 
 class ChatRepositoryImpl implements ChatRepository {
   final ChatLocalDataSource _localDataSource;
-  final WebSocketService? _webSocketService;
+  final WebSocketService _webSocketService;
   final StreamController<MessageEntity> _incomingController =
       StreamController<MessageEntity>.broadcast();
 
@@ -18,18 +17,62 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   void _listenToWebSocket() {
-    _webSocketService?.stream.listen((event) {
-      final data = jsonDecode(event);
+    // Listen for direct messages
+    _webSocketService.onMessage.listen((data) {
       final message = MessageModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        text: data['message'] as String,
-        senderId: 'remote',
+        id: data['messageId'] as String,
+        text: data['text'] as String,
+        senderId: data['senderId'] as String,
+        receiverId: data['receiverId'] as String?,
         isMe: false,
         status: MessageStatus.delivered,
-        createdAt: DateTime.now(),
+        createdAt:
+            DateTime.tryParse(data['timestamp'] as String? ?? '') ??
+            DateTime.now(),
       );
       _localDataSource.insertMessage(message);
       _incomingController.add(message);
+    });
+
+    // Listen for group messages
+    _webSocketService.onGroupMessage.listen((data) {
+      final message = MessageModel(
+        id: data['messageId'] as String,
+        text: data['text'] as String,
+        senderId: data['senderId'] as String,
+        groupId: data['groupId'] as String?,
+        isMe: false,
+        status: MessageStatus.delivered,
+        createdAt:
+            DateTime.tryParse(data['timestamp'] as String? ?? '') ??
+            DateTime.now(),
+      );
+      _localDataSource.insertMessage(message);
+      _incomingController.add(message);
+    });
+
+    // Listen for message status updates (sent/delivered/seen)
+    _webSocketService.onMessageStatus.listen((data) {
+      final messageId = data['messageId'] as String?;
+      final statusStr = data['status'] as String?;
+      if (messageId != null && statusStr != null) {
+        final status = MessageStatus.values.firstWhere(
+          (e) => e.name == statusStr,
+          orElse: () => MessageStatus.sent,
+        );
+        _localDataSource.updateMessageStatus(messageId, status.name);
+        // Emit a status update event
+        _incomingController.add(
+          MessageEntity(
+            id: messageId,
+            text: '',
+            senderId: '',
+            isMe: true,
+            status: status,
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
     });
   }
 
@@ -51,8 +94,21 @@ class ChatRepositoryImpl implements ChatRepository {
       createdAt: message.createdAt,
     );
     await _localDataSource.insertMessage(model);
-    _webSocketService?.sendMessage(message.text);
-    await updateMessageStatus(message.id, MessageStatus.sent);
+
+    if (message.groupId != null) {
+      _webSocketService.sendGroupMessage(
+        groupId: message.groupId!,
+        text: message.text,
+        messageId: message.id,
+        memberIds: [],
+      );
+    } else if (message.receiverId != null) {
+      _webSocketService.sendMessage(
+        receiverId: message.receiverId!,
+        text: message.text,
+        messageId: message.id,
+      );
+    }
   }
 
   @override

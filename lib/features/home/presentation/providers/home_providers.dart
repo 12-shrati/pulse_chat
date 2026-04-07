@@ -7,6 +7,12 @@ final getAllUsersUseCaseProvider = Provider<GetAllUsersUseCase>((ref) {
   return GetAllUsersUseCase(ref.watch(authRepositoryProvider));
 });
 
+final syncUsersFromServerUseCaseProvider = Provider<SyncUsersFromServerUseCase>(
+  (ref) {
+    return SyncUsersFromServerUseCase(ref.watch(authRepositoryProvider));
+  },
+);
+
 final getContactsUseCaseProvider = Provider<GetContactsUseCase>((ref) {
   return GetContactsUseCase(ref.watch(authRepositoryProvider));
 });
@@ -21,6 +27,10 @@ final removeContactUseCaseProvider = Provider<RemoveContactUseCase>((ref) {
 
 final searchUsersUseCaseProvider = Provider<SearchUsersUseCase>((ref) {
   return SearchUsersUseCase(ref.watch(authRepositoryProvider));
+});
+
+final deleteUserUseCaseProvider = Provider<DeleteUserUseCase>((ref) {
+  return DeleteUserUseCase(ref.watch(authRepositoryProvider));
 });
 
 final allUsersProvider = FutureProvider<List<UserEntity>>((ref) async {

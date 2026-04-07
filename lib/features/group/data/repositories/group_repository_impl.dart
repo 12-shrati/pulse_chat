@@ -91,4 +91,10 @@ class GroupRepositoryImpl implements GroupRepository {
   @override
   Future<void> removeMember(String groupId, String userId) =>
       _localDataSource.removeMember(groupId, userId);
+
+  @override
+  Future<List<GroupMember>> getMembers(String groupId) async {
+    final members = await _localDataSource.getMembers(groupId);
+    return members;
+  }
 }

@@ -3,7 +3,7 @@ import 'package:sqflite/sqflite.dart';
 class DatabaseHelper {
   static Database? _database;
   static const String _dbName = 'pulse_chat.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   DatabaseHelper._();
   static final DatabaseHelper instance = DatabaseHelper._();
@@ -94,6 +94,26 @@ class DatabaseHelper {
         FOREIGN KEY (user_id) REFERENCES users(id)
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE chats (
+        id TEXT PRIMARY KEY,
+        peer_id TEXT NOT NULL,
+        peer_name TEXT NOT NULL,
+        last_message TEXT,
+        last_message_at TEXT,
+        unread_count INTEGER NOT NULL DEFAULT 0,
+        is_group INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    await db.execute(
+      'CREATE INDEX idx_messages_receiver ON messages(receiver_id)',
+    );
+    await db.execute('CREATE INDEX idx_messages_group ON messages(group_id)');
+    await db.execute(
+      'CREATE INDEX idx_messages_created ON messages(created_at)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -123,6 +143,29 @@ class DatabaseHelper {
         )
       ''');
       await db.execute('ALTER TABLE groups ADD COLUMN color INTEGER');
+    }
+    if (oldVersion < 4) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS chats (
+          id TEXT PRIMARY KEY,
+          peer_id TEXT NOT NULL,
+          peer_name TEXT NOT NULL,
+          last_message TEXT,
+          last_message_at TEXT,
+          unread_count INTEGER NOT NULL DEFAULT 0,
+          is_group INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      // Add indexes for performance
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_messages_group ON messages(group_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)',
+      );
     }
   }
 

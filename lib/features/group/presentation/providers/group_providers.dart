@@ -28,10 +28,20 @@ final addMemberUseCaseProvider = Provider<AddMemberUseCase>((ref) {
   return AddMemberUseCase(ref.watch(groupRepositoryProvider));
 });
 
+final removeMemberUseCaseProvider = Provider<RemoveMemberUseCase>((ref) {
+  return RemoveMemberUseCase(ref.watch(groupRepositoryProvider));
+});
+
+final getMembersUseCaseProvider = Provider<GetMembersUseCase>((ref) {
+  return GetMembersUseCase(ref.watch(groupRepositoryProvider));
+});
+
 final groupProvider = StateNotifierProvider<GroupController, GroupState>((ref) {
   return GroupController(
     getGroupsUseCase: ref.watch(getGroupsUseCaseProvider),
     createGroupUseCase: ref.watch(createGroupUseCaseProvider),
     addMemberUseCase: ref.watch(addMemberUseCaseProvider),
+    removeMemberUseCase: ref.watch(removeMemberUseCaseProvider),
+    getMembersUseCase: ref.watch(getMembersUseCaseProvider),
   );
 });

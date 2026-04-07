@@ -51,6 +51,16 @@ class GetAllUsersUseCase {
   }
 }
 
+class SyncUsersFromServerUseCase {
+  final AuthRepository _repository;
+
+  SyncUsersFromServerUseCase(this._repository);
+
+  Future<List<UserEntity>> call() {
+    return _repository.syncUsersFromServer();
+  }
+}
+
 class SearchUsersUseCase {
   final AuthRepository _repository;
 
@@ -98,5 +108,15 @@ class IsContactUseCase {
 
   Future<bool> call(String contactId) {
     return _repository.isContact(contactId);
+  }
+}
+
+class DeleteUserUseCase {
+  final AuthRepository _repository;
+
+  DeleteUserUseCase(this._repository);
+
+  Future<void> call(String userId) {
+    return _repository.deleteUser(userId);
   }
 }

@@ -8,4 +8,5 @@ abstract class GroupRepository {
   Future<void> deleteGroup(String id);
   Future<void> addMember(String groupId, GroupMember member);
   Future<void> removeMember(String groupId, String userId);
+  Future<List<GroupMember>> getMembers(String groupId);
 }

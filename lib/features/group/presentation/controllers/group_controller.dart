@@ -7,14 +7,20 @@ class GroupController extends StateNotifier<GroupState> {
   final GetGroupsUseCase _getGroupsUseCase;
   final CreateGroupUseCase _createGroupUseCase;
   final AddMemberUseCase _addMemberUseCase;
+  final RemoveMemberUseCase _removeMemberUseCase;
+  final GetMembersUseCase _getMembersUseCase;
 
   GroupController({
     required GetGroupsUseCase getGroupsUseCase,
     required CreateGroupUseCase createGroupUseCase,
     required AddMemberUseCase addMemberUseCase,
+    required RemoveMemberUseCase removeMemberUseCase,
+    required GetMembersUseCase getMembersUseCase,
   }) : _getGroupsUseCase = getGroupsUseCase,
        _createGroupUseCase = createGroupUseCase,
        _addMemberUseCase = addMemberUseCase,
+       _removeMemberUseCase = removeMemberUseCase,
+       _getMembersUseCase = getMembersUseCase,
        super(const GroupState());
 
   Future<void> loadGroups() async {
@@ -76,6 +82,24 @@ class GroupController extends StateNotifier<GroupState> {
         final member = GroupMember(userId: userId, joinedAt: DateTime.now());
         await _addMemberUseCase(groupId, member);
       }
+      await loadGroups();
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+    }
+  }
+
+  Future<List<GroupMember>> getMembers(String groupId) async {
+    try {
+      return await _getMembersUseCase(groupId);
+    } catch (e) {
+      state = state.copyWith(error: e.toString());
+      return [];
+    }
+  }
+
+  Future<void> removeMember(String groupId, String userId) async {
+    try {
+      await _removeMemberUseCase(groupId, userId);
       await loadGroups();
     } catch (e) {
       state = state.copyWith(error: e.toString());

@@ -70,4 +70,18 @@ class StringConstants {
   static const String yes = 'Yes';
   static const String no = 'No';
   static const String noMatchFound = 'No results match your search';
+
+  // User management
+  static const String deleteUser = 'Delete User';
+  static const String confirmDeleteUser =
+      'This will permanently delete this user and all their data. Continue?';
+  static const String userDeleted = 'User deleted';
+
+  // Member management
+  static const String viewMembers = 'View Members';
+  static const String removeMember = 'Remove';
+  static const String confirmRemoveMember =
+      'Remove this member from the group?';
+  static const String memberRemoved = 'Member removed';
+  static const String noMembers = 'No members in this group';
 }

@@ -5,6 +5,7 @@ import 'package:pulse_chat/core/constant/app_color.dart';
 import 'package:pulse_chat/core/constant/app_icons.dart';
 import 'package:pulse_chat/core/constant/string_constants.dart';
 import 'package:pulse_chat/core/network/connectivity_service.dart';
+import 'package:pulse_chat/core/websocket/websocket_provider.dart';
 import 'package:pulse_chat/features/auth/presentation/providers/auth_providers.dart';
 import 'package:pulse_chat/features/auth/domain/entities/user_entity.dart';
 import 'package:pulse_chat/features/group/domain/entities/group_entity.dart';
@@ -30,7 +31,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     Future.microtask(() {
       ref.read(groupProvider.notifier).loadGroups();
+      _connectWebSocket();
     });
+  }
+
+  Future<void> _connectWebSocket() async {
+    // authProvider.user may be null on session restore (splash doesn't set it),
+    // so fall back to fetching from the repository.
+    var user = ref.read(authProvider).user;
+    if (user == null) {
+      final repo = ref.read(authRepositoryProvider);
+      user = await repo.getCurrentUser();
+    }
+    if (user != null) {
+      final ws = ref.read(webSocketServiceProvider);
+      await ws.connect(userId: user.id);
+      // Register current user on the server so other devices can discover them
+      ws.registerUser(
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+      );
+    }
   }
 
   @override
@@ -224,7 +247,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         _selectedFilter == HomeFilter.contacts) {
       for (final user in contacts) {
         items.add(
-          _ContactTile(user: user, onRemove: () => _confirmRemoveContact(user)),
+          _ContactTile(
+            user: user,
+            onRemove: () => _confirmRemoveContact(user),
+            onDelete: () => _confirmDeleteUser(user),
+          ),
         );
       }
     }
@@ -295,7 +322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return ListView.separated(
       itemCount: items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (_, index) => items[index],
     );
   }
@@ -340,6 +367,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const SnackBar(
                     content: Text(StringConstants.removedFromContacts),
                   ),
+                );
+              }
+            },
+            child: const Text(StringConstants.yes),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteUser(UserEntity user) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(StringConstants.deleteUser),
+        content: Text('${StringConstants.confirmDeleteUser}\n\n${user.name}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text(StringConstants.no),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: AppColors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await ref.read(deleteUserUseCaseProvider).call(user.id);
+              ref.invalidate(contactsProvider);
+              ref.invalidate(allUsersProvider);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(StringConstants.userDeleted)),
                 );
               }
             },
@@ -434,18 +495,29 @@ class _FindUsersSheetState extends ConsumerState<_FindUsersSheet> {
   }
 
   Future<void> _loadUsers() async {
-    final users = await ref.read(getAllUsersUseCaseProvider).call();
-    setState(() {
-      _allUsers = users;
-      _loading = false;
-    });
+    try {
+      // Sync users from the server so we get users registered on other devices
+      final users = await ref.read(syncUsersFromServerUseCaseProvider).call();
+      if (mounted) {
+        setState(() {
+          _allUsers = users;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[FindUsersSheet] _loadUsers error: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   List<UserEntity> get _filteredUsers {
+    final currentUserId = ref.read(authProvider).user?.id;
     final contacts = ref.read(contactsProvider).valueOrNull ?? [];
     final contactIds = contacts.map((c) => c.id).toSet();
     final nonContacts = _allUsers
-        .where((u) => !contactIds.contains(u.id))
+        .where((u) => u.id != currentUserId && !contactIds.contains(u.id))
         .toList();
     final query = _searchController.text.trim().toLowerCase();
     if (query.isEmpty) return nonContacts;
@@ -565,8 +637,19 @@ class _FindUsersSheetState extends ConsumerState<_FindUsersSheet> {
                             if (!current.any((u) => u.id == user.id)) {
                               recentChats.state = [...current, user];
                             }
+                            final currentUserId = ref
+                                .read(authProvider)
+                                .user
+                                ?.id;
                             Navigator.pop(context);
-                            context.push('/chat', extra: user.name);
+                            context.push(
+                              '/chat',
+                              extra: {
+                                'name': user.name,
+                                'contactId': user.id,
+                                'currentUserId': currentUserId ?? '',
+                              },
+                            );
                           },
                         );
                       },
@@ -627,14 +710,19 @@ class _SearchUserTile extends StatelessWidget {
 }
 
 // --- Contact tile ---
-class _ContactTile extends StatelessWidget {
+class _ContactTile extends ConsumerWidget {
   final UserEntity user;
   final VoidCallback onRemove;
+  final VoidCallback? onDelete;
 
-  const _ContactTile({required this.user, required this.onRemove});
+  const _ContactTile({
+    required this.user,
+    required this.onRemove,
+    this.onDelete,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       leading: Stack(
         children: [
@@ -670,28 +758,46 @@ class _ContactTile extends StatelessWidget {
       trailing: PopupMenuButton<String>(
         onSelected: (value) {
           if (value == 'remove') onRemove();
+          if (value == 'delete') onDelete?.call();
         },
         itemBuilder: (_) => [
           const PopupMenuItem(
             value: 'remove',
             child: Text(StringConstants.removeFromContacts),
           ),
+          const PopupMenuItem(
+            value: 'delete',
+            child: Text(
+              StringConstants.deleteUser,
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
         ],
       ),
-      onTap: () => context.push('/chat', extra: user.name),
+      onTap: () {
+        final currentUserId = ref.read(authProvider).user?.id;
+        context.push(
+          '/chat',
+          extra: {
+            'name': user.name,
+            'contactId': user.id,
+            'currentUserId': currentUserId ?? '',
+          },
+        );
+      },
     );
   }
 }
 
 // --- Unsaved chat tile (shown in All tab with save option) ---
-class _UnsavedChatTile extends StatelessWidget {
+class _UnsavedChatTile extends ConsumerWidget {
   final UserEntity user;
   final VoidCallback onSave;
 
   const _UnsavedChatTile({required this.user, required this.onSave});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: AppColors.grey,
@@ -712,7 +818,17 @@ class _UnsavedChatTile extends StatelessWidget {
         tooltip: StringConstants.addToContacts,
         onPressed: onSave,
       ),
-      onTap: () => context.push('/chat', extra: user.name),
+      onTap: () {
+        final currentUserId = ref.read(authProvider).user?.id;
+        context.push(
+          '/chat',
+          extra: {
+            'name': user.name,
+            'contactId': user.id,
+            'currentUserId': currentUserId ?? '',
+          },
+        );
+      },
     );
   }
 }
@@ -753,11 +869,21 @@ class _CreateGroupSheetState extends ConsumerState<_CreateGroupSheet> {
   }
 
   Future<void> _loadUsers() async {
-    final users = await ref.read(getAllUsersUseCaseProvider).call();
-    setState(() {
-      _allUsers = users;
-      _loading = false;
-    });
+    try {
+      // Sync users from the server so we get users registered on other devices
+      final users = await ref.read(syncUsersFromServerUseCaseProvider).call();
+      if (mounted) {
+        setState(() {
+          _allUsers = users;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[CreateGroupSheet] _loadUsers error: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   @override

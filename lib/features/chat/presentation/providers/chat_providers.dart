@@ -15,7 +15,7 @@ final chatLocalDataSourceProvider = Provider<ChatLocalDataSource>((ref) {
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   final localDataSource = ref.watch(chatLocalDataSourceProvider);
-  final socket = ref.watch(webSocketServiceProvider).valueOrNull;
+  final socket = ref.watch(webSocketServiceProvider);
   return ChatRepositoryImpl(localDataSource, socket);
 });
 
